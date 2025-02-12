@@ -413,7 +413,7 @@ export type Handler = (
     state?: State,
     options?: { [key: string]: unknown },
     callback?: HandlerCallback,
-) => Promise<unknown>;
+) => Promise<any>;
 
 /**
  * Callback function type for handlers
@@ -430,6 +430,7 @@ export type Validator = (
     runtime: IAgentRuntime,
     message: Memory,
     state?: State,
+    callback?: HandlerCallback,
 ) => Promise<boolean>;
 
 /**
@@ -1320,7 +1321,7 @@ export interface IAgentRuntime {
         responses: Memory[],
         state?: State,
         callback?: HandlerCallback,
-    ): Promise<void>;
+    ): Promise<boolean>;
 
     evaluate(
         message: Memory,
@@ -1524,6 +1525,7 @@ export enum ServiceType {
     GOPLUS_SECURITY = "goplus_security",
     WEB_SEARCH = "web_search",
     EMAIL_AUTOMATION = "email_automation",
+    FIREWALL = "firewall",
 }
 
 export enum LoggingLevel {

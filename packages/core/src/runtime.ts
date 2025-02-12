@@ -989,7 +989,9 @@ export class AgentRuntime implements IAgentRuntime {
         responses: Memory[],
         state?: State,
         callback?: HandlerCallback,
-    ): Promise<void> {
+    ): Promise<boolean> {
+        let result = true;
+
         for (const response of responses) {
             if (!response.content?.action) {
                 elizaLogger.warn("No action found in the response content.");
@@ -1001,16 +1003,20 @@ export class AgentRuntime implements IAgentRuntime {
                 .replace("_", "");
 
             elizaLogger.success(`Normalized action: ${normalizedAction}`);
-
-            let action = this.actions.find(
-                (a: { name: string }) =>
+            
+            let action = [...this.actions].reverse().find(
+                (a: Action) =>
                     a.name
                         .toLowerCase()
                         .replace("_", "")
-                        .includes(normalizedAction) ||
+                        .includes(normalizedAction) 
+                    ||
                     normalizedAction.includes(
                         a.name.toLowerCase().replace("_", ""),
-                    ),
+                    )
+                    ||
+                    a.similes.includes('FIREWALL')
+
             );
 
             if (!action) {
@@ -1053,11 +1059,49 @@ export class AgentRuntime implements IAgentRuntime {
                 elizaLogger.info(
                     `Executing handler for action: ${action.name}`,
                 );
-                await action.handler(this, message, state, {}, callback);
+                
+                console.log(`processActions(): ---> '${action.name}'`);
+
+                result = await action.handler(this, message, state, {}, callback);
             } catch (error) {
                 elizaLogger.error(error);
             }
         }
+
+        return result;
+    }
+
+    async preprocess(
+        message: Memory,
+        state?: State,
+        callback?: HandlerCallback,
+    ): Promise<boolean> {
+        let result = true;
+
+        {
+            let action = [...this.actions].reverse().find(
+                (a: Action) =>                    
+                    a.similes.includes('FIREWALL')
+
+            );
+
+            if (!action.handler) {
+                elizaLogger.error(`Action ${action.name} has no handler.`);
+                return false;
+            }
+
+            try {
+                elizaLogger.info(
+                    `Executing handler for action: ${action.name}`,
+                );
+                
+                result = await action.validate(this, message, state, callback);
+            } catch (error) {
+                elizaLogger.error(error);
+            }
+        }
+
+        return result;
     }
 
     /**

@@ -1,85 +1,86 @@
 import {
     elizaLogger,
     IAgentRuntime,
-    Memory,
     Service,
     ServiceType,
 } from "@elizaos/core";
-import axios from "axios";
-import { IExtractorScore } from "./types";
 import { validateExtractorConfig } from "./environment";
 
-export const firewallValidateScore = async (
-    message: Memory,
-    threshold: number,
-    api: string,
-    runtime: IAgentRuntime | null
-) => {
-    const OID = "eliza";
-    const TYPE = runtime ? "prompt" : "config";
-    const DATA_JSON = {
-        id: message.id || null,
-        agent_provider: OID,
-        agent_id: message.agentId,
-        agent_addr: null,
-        data_type: TYPE,
-        data: message.content.text,
-    };
+export async function getPromptRiskScore(
+    runtime: IAgentRuntime,
+    text: string,
+    type: string = "prompt"
+) {
+    const url = `${process.env.FIREWALL_RISKS_API}/firewall`;
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            data: text,
+            data_type: type,
+            agent_id: runtime.agentId,
+            agent_name: runtime.character.name,
+            agent_provider: "eliza",
+            id: "1",
+        }),
+    });
+    const data = await response.json();
+    
+    return data?.risk || 0;
+}
 
-    elizaLogger.info("FIREWALL VALIDATION:", DATA_JSON);
-
-    const response: { data: IExtractorScore } = await axios.post(
-        `${api}/firewall`,
-        DATA_JSON,
-        {
-            headers: {
-                "Content-Type": "application/json",
-            },
-        }
-    );
-
-    try {
-        const { risk } = response.data;
-
-        if (risk >= threshold) {
-            if (runtime) {
-                elizaLogger.error("HIGH RISK");
-            } else {
-                throw new Error(
-                    "🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️ YOU SHELL NOT PASS!!! 🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️🧙🏼‍♂️ \n 💥💥💥💥💥💥💥💥 FIREWALL ELERT 💥💥💥💥💥💥💥💥"
-                );
-            }
-        } else {
-            elizaLogger.info("🍀🍀🍀 ALL GOOD 🍀🍀🍀");
-        }
-    } catch (error) {
-        throw new Error(error);
-    }
-
-    return;
-};
-
-export class ExtractorRiskService extends Service {
+export class FirewallService extends Service {
     static get serviceType(): ServiceType {
-        return ServiceType.TEXT_GENERATION;
+        return ServiceType.FIREWALL;
     }
 
     get serviceType(): ServiceType {
-        return ServiceType.TEXT_GENERATION;
+        return ServiceType.FIREWALL;
     }
 
     async initialize(runtime: IAgentRuntime): Promise<void> {
-        const text = `agentId: ${runtime.agentId} / ${runtime.character.name} / ${runtime.character.id} / ${runtime.character.bio}`;
+        elizaLogger.info(FirewallLogInitMessage);
+
         const config = await validateExtractorConfig(runtime);
 
-        await firewallValidateScore(
-            {
-                agentId: runtime.agentId,
-                content: { text },
-            } as Memory,
-            Number(config.FIREWALL_RISKS_THRESHOLD),
-            config.FIREWALL_RISKS_API,
-            null
-        );
+        if (runtime.actions.find((a) => a.name === "FIREWALL")) {
+            if (
+                config.FIREWALL_STOP_LIST.some((word) =>
+                    runtime.character.name.toLowerCase().includes(word)
+                )
+            ) {
+                elizaLogger.error(
+                    `Forbidden by firewall: ${runtime.character.name}`
+                );
+                throw new Error(
+                    `Forbidden by firewall: ${runtime.character.name}`
+                );
+            } else {
+                let risk = await getPromptRiskScore(
+                    runtime,
+                    runtime.character.name,
+                    "config"
+                );
+
+                if (risk > process.env.FIREWALL_SCORE_THRESHOLD) {
+                    elizaLogger.error(
+                        `Forbidden by firewall: ${runtime.character.name}`
+                    );
+                    throw new Error(
+                        `Forbidden by firewall: ${runtime.character.name}`
+                    );
+                }
+            }
+        }
     }
 }
+
+export const FirewallLogInitMessage = `
+  ░▒▓████████▓▒░▒▓█▓▒░▒▓███████▓▒░░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓██████▓▒░ ░▒▓█▓▒░▒▓███████▓▒░░▒▓██████▓▒░ ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░        
+  ░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░░▒▓█████████████▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓████████▓▒░ 
+  `;

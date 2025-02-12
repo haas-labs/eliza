@@ -287,6 +287,24 @@ export class DirectClient {
                     template: messageHandlerTemplate,
                 });
 
+                // prevalidate ========================================================
+                let messagePreprocess = null as Content | null;
+                const resultPreprocess = await runtime.preprocess(
+                    memory,                    
+                    state,
+                    async (newMessages) => {
+                        messagePreprocess = newMessages;
+                        return [memory];
+                    }
+                );
+
+                if (!resultPreprocess) {
+                    console.log(`preprocess(): REJECT: ${messagePreprocess?.content}`);
+                    res.json([messagePreprocess]);
+                    return;
+                }
+                // prevalidate ========================================================
+
                 const response = await generateMessageResponse({
                     runtime: runtime,
                     context,
@@ -316,7 +334,7 @@ export class DirectClient {
 
                 let message = null as Content | null;
 
-                await runtime.processActions(
+                const result = await runtime.processActions(
                     memory,
                     [responseMessage],
                     state,
@@ -326,26 +344,33 @@ export class DirectClient {
                     }
                 );
 
-                await runtime.evaluate(memory, state);
+                if (!result) {
+                    let rejectMessage = message;
 
-                // Check if we should suppress the initial message
-                const action = runtime.actions.find(
-                    (a) => a.name === response.action
-                );
-                const shouldSuppressInitialMessage =
-                    action?.suppressInitialMessage;
-
-                if (!shouldSuppressInitialMessage) {
-                    if (message) {
-                        res.json([response, message]);
-                    } else {
-                        res.json([response]);
-                    }
+                    res.json([rejectMessage]);
                 } else {
-                    if (message) {
-                        res.json([message]);
+
+                    await runtime.evaluate(memory, state);
+
+                    // Check if we should suppress the initial message
+                    const action = runtime.actions.find(
+                        (a) => a.name === response.action
+                    );
+                    const shouldSuppressInitialMessage =
+                        action?.suppressInitialMessage;
+
+                    if (!shouldSuppressInitialMessage) {
+                        if (message) {
+                            res.json([response, message]);
+                        } else {
+                            res.json([response]);
+                        }
                     } else {
-                        res.json([]);
+                        if (message) {
+                            res.json([message]);
+                        } else {
+                            res.json([]);
+                        }
                     }
                 }
             }

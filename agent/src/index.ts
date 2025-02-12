@@ -243,7 +243,6 @@ function isAllStrings(arr: unknown[]): boolean {
 export async function loadCharacterFromOnchain(): Promise<Character[]> {
     const jsonText = onchainJson;
 
-    console.log("JSON:", jsonText);
     if (!jsonText) return [];
     const loadedCharacters = [];
     try {
@@ -1016,8 +1015,9 @@ export async function createAgent(
         modelProvider: character.modelProvider,
         evaluators: [],
         character,
-        // character.plugins are handled when clients are added
         plugins: [
+            nodePlugin,
+            bootstrapPlugin,
             parseBooleanFromText(getSecret(character, "BITMIND")) &&
             getSecret(character, "BITMIND_API_TOKEN")
                 ? bittensorPlugin
@@ -1031,7 +1031,7 @@ export async function createAgent(
             getSecret(character, "IQSOlRPC")
                 ? elizaCodeinPlugin
                 : null,
-            bootstrapPlugin,
+
             getSecret(character, "CDP_API_KEY_NAME") &&
             getSecret(character, "CDP_API_KEY_PRIVATE_KEY") &&
             getSecret(character, "CDP_AGENT_KIT_NETWORK")
@@ -1044,7 +1044,6 @@ export async function createAgent(
             getSecret(character, "CONFLUX_CORE_PRIVATE_KEY")
                 ? confluxPlugin
                 : null,
-            nodePlugin,
             getSecret(character, "ROUTER_NITRO_EVM_PRIVATE_KEY") &&
             getSecret(character, "ROUTER_NITRO_EVM_ADDRESS")
                 ? nitroPlugin
@@ -1069,8 +1068,8 @@ export async function createAgent(
                 getSecret(character, "WALLET_PUBLIC_KEY")?.startsWith("0x"))
                 ? evmPlugin
                 : null,
-            (getSecret(character, "EVM_PRIVATE_KEY") ||
-                getSecret(character, "SOLANA_PRIVATE_KEY"))
+            getSecret(character, "EVM_PRIVATE_KEY") ||
+            getSecret(character, "SOLANA_PRIVATE_KEY")
                 ? edwinPlugin
                 : null,
             (getSecret(character, "EVM_PUBLIC_KEY") ||
@@ -1312,7 +1311,7 @@ export async function createAgent(
         managers: [],
         cacheManager: cache,
         fetch: logFetch,
-        verifiableInferenceAdapter,
+        // verifiableInferenceAdapter,
     });
 }
 
@@ -1528,6 +1527,9 @@ const startAgents = async () => {
     elizaLogger.info(
         "Run `pnpm start:client` to start the client and visit the outputted URL (http://localhost:5173) to chat with your agents. When running multiple agents, use client with different port `SERVER_PORT=3001 pnpm start:client`"
     );
+
+    const chat = startChat(characters);
+    chat();
 };
 
 startAgents().catch((error) => {
@@ -1549,4 +1551,59 @@ if (
     process.on("unhandledRejection", function (err) {
         console.error("unhandledRejection", err);
     });
+}
+
+// ============================================================================================================================
+import readline from "readline";
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+});
+
+rl.on("SIGINT", () => {
+    rl.close();
+    process.exit(0);
+});
+
+async function handleUserInput(input, agentId) {
+    if (input.toLowerCase() === "exit") {
+        rl.close();
+        process.exit(0);
+    }
+
+    try {
+        const serverPort = parseInt(settings.SERVER_PORT || "3000");
+
+        const response = await fetch(
+            `http://localhost:${serverPort}/${agentId}/message`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: input,
+                    userId: "user",
+                    userName: "User",
+                }),
+            }
+        );
+
+        const data = await response.json();
+        data.forEach((message) => console.log(`${"Agent"}: ${message.text}`));
+    } catch (error) {
+        console.error("Error fetching response:", error);
+    }
+}
+
+export function startChat(characters) {
+    function chat() {
+        const agentId = characters[0].name ?? "Agent";
+        rl.question("You: ", async (input) => {
+            await handleUserInput(input, agentId);
+            if (input.toLowerCase() !== "exit") {
+                chat(); // Loop back to ask another question
+            }
+        });
+    }
+
+    return chat;
 }
